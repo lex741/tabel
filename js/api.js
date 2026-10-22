@@ -47,7 +47,20 @@ class CloudApi {
     const email = loginToEmail(login, this.cfg.LOGIN_EMAIL_DOMAIN || 'tabel.app');
     const { data, error } = await this.sb.auth.signInWithPassword({ email, password });
     if (error) {
-      const msg = /invalid/i.test(error.message) ? 'Неверный логин или пароль.' : `Не удалось войти: ${error.message}`;
+      const code = error.code || '';
+      const raw = error.message || '';
+      let msg;
+      if (code === 'invalid_credentials' || /Invalid login credentials/i.test(raw)) {
+        msg = `Supabase не нашёл пользователя ${email} с таким паролем. Проверьте email и пароль в Authentication → Users.`;
+      } else if (code === 'email_not_confirmed' || /not confirmed/i.test(raw)) {
+        msg = `Email ${email} не подтверждён. Создайте пользователя заново с галочкой Auto Confirm User.`;
+      } else if (/api key|apikey|No API key/i.test(raw) || error.status === 401) {
+        msg = 'Supabase отклонил ключ. Проверьте SUPABASE_ANON_KEY в js/config.js: нужен anon public key этого же проекта.';
+      } else if (/fetch|network/i.test(raw) || error.status === 0) {
+        msg = 'Не удалось достучаться до Supabase. Проверьте SUPABASE_URL в js/config.js и что проект не на паузе.';
+      } else {
+        msg = `Не удалось войти: ${raw}`;
+      }
       throw new Error(msg);
     }
     this.userId = data.user.id;
@@ -93,8 +106,8 @@ class CloudApi {
     const page = 1000;
     for (let i = 0; ; i += page) {
       const d = this.check(await this.sb.from('entries').select('*')
-        .gte('started_at', new Date(from).toISOString()).lt('started_at', new Date(to).toISOString())
-        .order('started_at').range(i, i + page - 1));
+          .gte('started_at', new Date(from).toISOString()).lt('started_at', new Date(to).toISOString())
+          .order('started_at').range(i, i + page - 1));
       out.push(...d.map(CloudApi.entry));
       if (d.length < page) break;
     }
@@ -121,8 +134,8 @@ class CloudApi {
   }
   async saveReport(day, text) {
     this.check(await this.sb.from('day_reports').upsert(
-      { user_id: this.userId, day, body: text, updated_at: new Date().toISOString() },
-      { onConflict: 'user_id,day' }
+        { user_id: this.userId, day, body: text, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id,day' }
     ));
   }
 
@@ -133,8 +146,8 @@ class CloudApi {
   }
   async saveReview(kind, periodStart, text) {
     this.check(await this.sb.from('reviews').upsert(
-      { user_id: this.userId, kind, period_start: periodStart, body: text, updated_at: new Date().toISOString() },
-      { onConflict: 'user_id,kind,period_start' }
+        { user_id: this.userId, kind, period_start: periodStart, body: text, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id,kind,period_start' }
     ));
   }
 }
@@ -206,7 +219,7 @@ class LocalApi {
   async listReports(fromKey, toKeyExcl) {
     const d = this.load();
     return Object.keys(d.reports).filter((k) => k >= fromKey && k < toKeyExcl).sort()
-      .map((k) => ({ day: k, text: d.reports[k].text, updatedAt: d.reports[k].updatedAt }));
+        .map((k) => ({ day: k, text: d.reports[k].text, updatedAt: d.reports[k].updatedAt }));
   }
   async saveReport(day, text) { const d = this.load(); d.reports[day] = { text, updatedAt: Date.now() }; this.save(d); }
   async getReview(kind, periodStart) { return this.load().reviews[`${kind}:${periodStart}`] || null; }
